@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mothership Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        :root {
+            --eva-purple: #7B4B94;
+            --eva-green: #83A94C;
+            --eva-orange: #F58220;
+            --eva-yellow: #F7CE00; /* From EVA-00 */
+            --eva-dark-purple: #5a3d6a;
+            --eva-dark: #1a1a1a;
+            --eva-light-dark: #2a2a2a;
+            --eva-text: #e0e0e0;
+        }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--eva-dark);
+            color: var(--eva-text);
+            overflow: hidden;
+        }
+        canvas {
+            background-color: var(--eva-light-dark);
+            display: block;
+            cursor: pointer;
+            border: 2px solid #444;
+        }
+        #startScreen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+            cursor: pointer;
+        }
+        .hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            pointer-events: none;
+        }
+        .hud-left, .hud-right, .hud-center {
+            background: rgba(0,0,0,0.5);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+        .hud-center { text-align: center; }
+        .hud-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .hud-button {
+            background-color: var(--eva-green);
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 4px #333;
+            transition: all 0.1s ease-in-out;
+            pointer-events: all;
+            min-width: 120px;
+        }
+        .hud-button:disabled {
+            background-color: #555;
+            color: #999;
+            box-shadow: 0 4px #333;
+            cursor: not-allowed;
+        }
+        .hud-button:active:not(:disabled) {
+            box-shadow: 0 2px #222;
+            transform: translateY(2px);
+        }
+        .resource-cost {
+            font-size: 10px;
+            display: block;
+            margin-top: 4px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 10;
+            left: 0; top: 0; width: 100%; height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.8);
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #333;
+            margin: auto; padding: 20px;
+            border: 1px solid var(--eva-purple);
+            width: 90%; max-width: 900px;
+            border-radius: 10px; color: var(--eva-text);
+        }
+        .crafting-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 150px; height: 150px;
+            gap: 5px; background-color: #222;
+            border: 2px solid #555; margin: 0 auto;
+        }
+        .grid-cell {
+            background-color: #444; border: 1px solid #666;
+            cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+        }
+        .grid-cell.structure { background-color: var(--eva-dark-purple); } /* Darker Purple */
+        .grid-cell.movement { background-color: var(--eva-green); }
+        .grid-cell.weapon { background-color: var(--eva-orange); }
+        .grid-cell.projectile { background-color: var(--eva-purple); }
+        .grid-cell.brain { background-color: var(--eva-green); cursor: not-allowed; }
+
+        .resource-palette-item {
+            padding: 8px; border-radius: 4px;
+            cursor: pointer; margin-bottom: 5px;
+            text-align: center; border: 2px solid transparent;
+        }
+        .resource-palette-item.selected { border-color: var(--eva-green); }
+        .drone-slot {
+            background: #444; padding: 10px;
+            margin-bottom: 5px; border-radius: 5px;
+            cursor: pointer; border: 2px solid transparent;
+        }
+        .drone-slot.selected { border-color: var(--eva-green); }
+        #pauseMenu {
+            display: none; justify-content: center;
+            align-items: center; flex-direction: column;
+        }
+        .game-over { font-size: 3rem; color: var(--eva-orange); text-align: center; }
+        .res-structure { color: #AC94B9; }
+        .res-movement { color: var(--eva-green); }
+        .res-weapon { color: var(--eva-orange); }
+        .res-projectile { color: var(--eva-purple); }
+        
+        #dismantleMenu {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.5);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            pointer-events: all;
+        }
+        .dismantle-item button {
+            background-color: #777;
+            padding: 2px 6px;
+            font-size: 12px;
+            border-radius: 4px;
+            margin-left: 4px;
+        }
+         .dismantle-item button:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+         }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            color: #999;
+        }
+        .tab-btn.active {
+            color: #fff;
+            border-bottom-color: var(--eva-green);
+        }
+    </style>
+</head>
+<body class="select-none">
+    <div id="startScreen">
+        <h1 class="text-4xl mb-4">Mothership Command</h1>
+        <p class="text-xl">Click anywhere to begin</p>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div class="hud">
+        <div class="hud-left">
+            <div>Health: <span id="health">100</span></div>
+            <div><span class="text-yellow-300">Energy</span>: <span id="energy">1000</span></div>
+            <div><span class="res-structure">Structure</span>: <span id="structure">10</span></div>
+            <div><span class="res-movement">Movement</span>: <span id="movement">5</span></div>
+            <div><span class="res-weapon">Weapon</span>: <span id="weapon">0</span></div>
+            <div><span class="res-projectile">Projectile</span>: <span id="projectile">0</span></div>
+        </div>
+        <div class="hud-center">
+            <div class="text-2xl font-bold">Wave <span id="waveCount">1</span></div>
+            <div id="waveMessage" class="text-lg"></div>
+        </div>
+        <div class="hud-right">
+            <div>Time: <span id="time">0</span>s</div>
+            <div>Drones: <span id="droneCount">0</span></div>
+            <div>Resources: <span id="resourceCount">0</span></div>
+            <div>Enemies: <span id="enemyCount">0</span></div>
+            <div>Kills: <span id="killCount">0</span></div>
+        </div>
+    </div>
+    <div class="hud-controls">
+        <button id="spawnDroneBtn1" class="hud-button"><span>1. Spawn Drone</span><span class="resource-cost">S:0 M:0 W:0 P:0</span></button>
+        <button id="spawnDroneBtn2" class="hud-button"><span>2. Spawn Drone</span><span class="resource-cost">S:0 M:0 W:0 P:0</span></button>
+        <button id="spawnDroneBtn3" class="hud-button"><span>3. Spawn Drone</span><span class="resource-cost">S:0 M:0 W:0 P:0</span></button>
+        <button id="pauseBtn" class="hud-button" style="background-color: var(--eva-purple);">Pause</button>
+    </div>
+
+    <!-- Dismantle Menu -->
+    <div id="dismantleMenu">
+        <h4 class="text-center font-bold mb-2">Dismantle</h4>
+        <div class="dismantle-item mb-1" data-resource="structure"><span class="res-structure">S:</span> <span class="count">0</span><button data-amount="1">x1</button><button data-amount="5">x5</button><button data-amount="10">x10</button></div>
+        <div class="dismantle-item mb-1" data-resource="movement"><span class="res-movement">M:</span> <span class="count">0</span><button data-amount="1">x1</button><button data-amount="5">x5</button><button data-amount="10">x10</button></div>
+        <div class="dismantle-item mb-1" data-resource="weapon"><span class="res-weapon">W:</span> <span class="count">0</span><button data-amount="1">x1</button><button data-amount="5">x5</button><button data-amount="10">x10</button></div>
+        <div class="dismantle-item" data-resource="projectile"><span class="res-projectile">P:</span> <span class="count">0</span><button data-amount="1">x1</button><button data-amount="5">x5</button><button data-amount="10">x10</button></div>
+    </div>
+
+    <!-- Creature Crafting Menu -->
+    <div id="craftingMenu" class="modal">
+        <div class="modal-content relative flex flex-col">
+            <h2 class="text-2xl font-bold text-center mb-4">Crafting Station</h2>
+            <div class="flex border-b border-gray-600 mb-4"><button id="droneTabBtn" class="tab-btn active">Drone Crafting</button><button id="mothershipTabBtn" class="tab-btn">Mothership Core</button></div>
+            
+            <div id="droneCraftingTab">
+                <div class="flex flex-col md:flex-row gap-8 flex-grow">
+                    <div class="flex-1"><h3 class="text-xl mb-2">Drone Blueprints</h3><div id="drone-blueprints"></div><button id="newBlueprintBtn" class="w-full mt-2 p-2 rounded" style="background-color: var(--eva-green);">New Blueprint</button></div>
+                    <div class="flex-1 flex flex-col items-center"><h3 class="text-xl mb-2">Designer</h3><input type="text" id="blueprintName" placeholder="Blueprint Name" class="bg-gray-700 p-2 rounded mb-2 w-full text-center"><div id="droneCraftingGrid" class="crafting-grid mb-4"></div><button id="saveBlueprintBtn" class="p-2 rounded" style="background-color: var(--eva-purple);">Save Blueprint</button></div>
+                    <div class="flex-1"><h3 class="text-xl mb-2">Component Palette</h3><div class="resource-palette"></div><h3 class="text-xl mb-2 mt-4">Assign to Spawn Slot</h3><div class="flex gap-2"><button class="assign-slot-btn flex-1 p-2 rounded" style="background-color: var(--eva-purple);" data-slot="1">Slot 1</button><button class="assign-slot-btn flex-1 p-2 rounded" style="background-color: var(--eva-purple);" data-slot="2">Slot 2</button><button class="assign-slot-btn flex-1 p-2 rounded" style="background-color: var(--eva-purple);" data-slot="3">Slot 3</button></div></div>
+                </div>
+            </div>
+
+            <div id="mothershipCraftingTab" class="hidden">
+                 <div class="flex flex-col md:flex-row gap-8 flex-grow">
+                    <div class="flex-1"><h3 class="text-xl mb-2">Component Palette</h3><div class="resource-palette"></div></div>
+                    <div class="flex-1 flex flex-col items-center"><h3 class="text-xl mb-2">Mothership Grid</h3><div id="mothershipCraftingGrid" class="crafting-grid" style="grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr); width: 250px; height: 250px;"></div><button id="saveMothershipBtn" class="p-2 mt-4 rounded" style="background-color: var(--eva-purple);">Save Core Design</button></div>
+                    <div class="flex-1 flex flex-col"><h3 class="text-xl mb-2">Ascension</h3><div class="p-4 bg-gray-800 rounded h-full flex items-center justify-center flex-grow"><p class="text-gray-500">Planned Ascension Update</p></div></div>
+                </div>
+            </div>
+
+            <button id="closeCraftingMenu" class="absolute top-4 right-4 text-2xl font-bold">&times;</button>
+            <div class="mt-6 text-center"><button id="craftingMenuCloseBtnBottom" class="p-2 px-8 rounded" style="background-color: var(--eva-orange);">Close</button></div>
+        </div>
+    </div>
+    
+    <!-- Pause Menu -->
+    <div id="pauseMenu" class="modal">
+        <div class="modal-content text-center">
+            <div id="gameOverText" class="game-over hidden mb-4">GAME OVER</div>
+            <div id="gameOverStats" class="hidden text-lg mb-4">
+                <p>Time Survived: <span id="finalTime">0</span>s</p>
+                <p>Enemies Killed: <span id="finalKills">0</span></p>
+                <p>Resources Gathered: <span id="finalResources">0</span></p>
+            </div>
+            <h2 id="pausedText" class="text-4xl mb-6">Paused</h2>
+            <div class="my-4"><button id="resumeBtn" class="hud-button text-2xl px-8 py-4">Resume</button></div>
+            <div class="my-4"><button id="restartBtn" class="hud-button hidden text-2xl px-8 py-4 bg-green-600">Restart</button></div>
+            <div class="flex items-center justify-center gap-4 mt-4"><label for="volumeSlider">Volume:</label><input type="range" id="volumeSlider" min="-40" max="0" step="1" value="0"><button id="muteBtn" class="hud-button bg-yellow-500 text-sm">Mute</button></div>
+            <div class="flex items-center justify-center gap-4 mt-4"><label for="speedSlider">Speed:</label><input type="range" id="speedSlider" min="0.5" max="5" step="0.1" value="1"><span id="speedValue">1.0x</span></div>
+        </div>
+    </div>
+
+
+<script>
+// --- Game Setup ---
+const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d'); const startScreen = document.getElementById('startScreen');
+
+const colors = {
+    purple: '#7B4B94',
+    green: '#83A94C',
+    orange: '#F58220',
+    darkPurple: '#5a3d6a',
+    red: '#DC143C',
+    yellow: '#F7CE00',
+};
+
+let gamePaused = false, gameOver = false, gameSpeed = 1, time = 0;
+let resources = [], drones = [], enemies = [], projectiles = [];
+let keys = {}; let enemyKillCount = 0, totalResourcesGathered = 0, resourceSpawnInterval = 5000, enemyMothership = null;
+let wave = { current: 0, timer: 10000, state: 'INTERMISSION', enemiesToSpawn: 0, enemiesSpawnedThisWave: 0, spawnInterval: 1000, spawnTimer: 0 };
+const camera = { x: 0, y: 0, lerpFactor: 0.04 };
+const mothership = {
+    x: 0, y: 0, size: 50, speed: 1.5, health: 100, maxHealth: 100, defense: 0, energy: 1000, maxEnergy: 1000, 
+    resources: { structure: 10, movement: 5, weapon: 0, projectile: 0 },
+    design: [], target: null, attackCooldown: 0,
+    attackStrength: 0, hasRangedAttack: false, rangedAttackPower: 0, rangedAttackRange: 0,
+    moveEnergyCost: 0, meleeEnergyCost: 0, rangedEnergyCost: 0,
+    
+    draw: function() { const screenX = this.x - camera.x; const screenY = this.y - camera.y; ctx.fillStyle = colors.purple; ctx.fillRect(screenX - this.size / 2, screenY - this.size / 2, this.size, this.size); ctx.fillStyle = '#2a2a2a'; ctx.fillRect(screenX - 5, screenY + this.size / 2 - 5, 10, 10); },
+    move: function(deltaTime) { let moved = false; const moveSpeed = this.speed * (deltaTime / 16.67); if ('w' in keys && keys['w'] && this.energy > 0) { this.y -= moveSpeed; moved = true; } if ('s' in keys && keys['s'] && this.energy > 0) { this.y += moveSpeed; moved = true; } if ('a' in keys && keys['a'] && this.energy > 0) { this.x -= moveSpeed; moved = true; } if ('d' in keys && keys['d'] && this.energy > 0) { this.x += moveSpeed; moved = true; } if (moved) this.energy -= this.moveEnergyCost * (deltaTime / 16.67); },
+    update: function(deltaTime) {
+        if (this.attackCooldown > 0) this.attackCooldown -= deltaTime;
+        if (!this.target || !unitIsAlive(this.target)) { let closest = null, minDist = 150; [...enemies, enemyMothership].filter(e=>e).forEach(e => { if (e.health > 0) { const dist = Math.hypot(this.x - e.x, this.y - e.y); if (dist < minDist) { minDist = dist; closest = e; } } }); this.target = closest; }
+        if (this.target && this.attackCooldown <= 0) {
+            const dist = Math.hypot(this.x - this.target.x, this.y - this.target.y);
+            if (this.hasRangedAttack && dist <= this.rangedAttackRange && this.energy >= this.rangedEnergyCost) { projectiles.push(new Projectile(this.x, this.y, this.target, this.rangedAttackPower, 7, 'player')); this.energy -= this.rangedEnergyCost; this.attackCooldown = 1000;
+            } else if (dist <= this.size / 2 + this.target.size / 2 && this.energy >= this.meleeEnergyCost) { this.target.health -= this.attackStrength - this.target.defense; this.energy -= this.meleeEnergyCost; this.attackCooldown = 1000; audio.queueSound('attack'); }
+        }
+    }
+};
+
+// --- Audio Engine ---
+const audio = {
+    initialized: false, collectSynth: null, attackSynth: null, deathSynth: null, music: null, soundQueue: [], maxQueueSize: 5, isMuted: false, userVolume: 0,
+    init: function() {
+        if (this.initialized) return;
+        this.collectSynth = new Tone.Synth({ oscillator: { type: 'square' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 } }).toDestination();
+        this.attackSynth = new Tone.PolySynth(Tone.NoiseSynth, { noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.1 } }).toDestination();
+        this.deathSynth = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4, attackCurve: 'exponential' } }).toDestination();
+        const musicSynth = new Tone.FMSynth({ harmonicity: 3.01, modulationIndex: 14, envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 1 } }).toDestination();
+        this.collectSynth.volume.value = -10; this.attackSynth.volume.value = -20; this.deathSynth.volume.value = -10; musicSynth.volume.value = -25;
+        const musicPattern = new Tone.Sequence((time, note) => { musicSynth.triggerAttackRelease(note, '8n', time); }, ['C2', null, 'E2', null, 'G2', null, 'C3', null], '4n');
+        musicPattern.start(0); Tone.Transport.start();
+        this.startProcessor(); this.setVolume(this.userVolume); this.initialized = true;
+    },
+    startProcessor: function() { setInterval(() => { if (this.soundQueue.length > 0) { const sound = this.soundQueue.shift(); switch (sound.type) { case 'collect': this.collectSynth.triggerAttackRelease('C5', '8n'); break; case 'attack': this.attackSynth.triggerAttackRelease('16n'); break; case 'death': this.deathSynth.triggerAttackRelease('C2', '8n'); break; } } }, 50); },
+    queueSound: function(type) { if (this.initialized && this.soundQueue.length < this.maxQueueSize) this.soundQueue.push({ type }); },
+    setVolume: function(val) { this.userVolume = val; if (!this.isMuted) Tone.Destination.volume.value = val; },
+    toggleMute: function() { this.isMuted = !this.isMuted; Tone.Destination.volume.value = this.isMuted ? -Infinity : this.userVolume; document.getElementById('muteBtn').textContent = this.isMuted ? 'Unmute' : 'Mute'; }
+};
+
+let blueprints = [ { name: 'Collector Drone', design: [ {x: 1, y: 0, type: 'structure'}, {x: 1, y: 1, type: 'movement'}, {x: 1, y: 2, type: 'structure'}, ] } ];
+let spawnSlots = { 1: blueprints[0], 2: null, 3: null };
+
+// --- UI Elements ---
+const healthDisplay = document.getElementById('health'), energyDisplay = document.getElementById('energy'), structureDisplay = document.getElementById('structure'), movementDisplay = document.getElementById('movement'), weaponDisplay = document.getElementById('weapon'), projectileDisplay = document.getElementById('projectile'), timeDisplay = document.getElementById('time'), droneCountDisplay = document.getElementById('droneCount'), resourceCountDisplay = document.getElementById('resourceCount'), enemyCountDisplay = document.getElementById('enemyCount'), killCountDisplay = document.getElementById('killCount'), waveCountDisplay = document.getElementById('waveCount'), waveMessageDisplay = document.getElementById('waveMessage'), pauseBtn = document.getElementById('pauseBtn'), resumeBtn = document.getElementById('resumeBtn'), pauseMenu = document.getElementById('pauseMenu'), craftingMenu = document.getElementById('craftingMenu'), closeCraftingMenuBtn = document.getElementById('closeCraftingMenu'), droneCraftingGrid = document.getElementById('droneCraftingGrid'), blueprintListUI = document.getElementById('drone-blueprints'), saveBlueprintBtn = document.getElementById('saveBlueprintBtn'), newBlueprintBtn = document.getElementById('newBlueprintBtn'), blueprintNameInput = document.getElementById('blueprintName'), resourcePalettes = document.querySelectorAll('.resource-palette'), assignSlotBtns = document.querySelectorAll('.assign-slot-btn'), gameOverText = document.getElementById('gameOverText'), pausedText = document.getElementById('pausedText'), craftingMenuCloseBtnBottom = document.getElementById('craftingMenuCloseBtnBottom'), volumeSlider = document.getElementById('volumeSlider'), muteBtn = document.getElementById('muteBtn'), speedSlider = document.getElementById('speedSlider'), speedValueDisplay = document.getElementById('speedValue'), dismantleMenu = document.getElementById('dismantleMenu');
+const droneTabBtn = document.getElementById('droneTabBtn'), mothershipTabBtn = document.getElementById('mothershipTabBtn'), droneCraftingTab = document.getElementById('droneCraftingTab'), mothershipCraftingTab = document.getElementById('mothershipCraftingTab'), mothershipCraftingGrid = document.getElementById('mothershipCraftingGrid'), saveMothershipBtn = document.getElementById('saveMothershipBtn');
+const restartBtn = document.getElementById('restartBtn');
+
+let currentDroneCraftingGrid = createEmptyGrid(3); let currentMothershipCraftingGrid = createEmptyGrid(5);
+let selectedPaletteType = 'structure'; let selectedBlueprint = null; let tempMothershipResourcePool = {};
+function createEmptyGrid(size) { return Array(size).fill(null).map(() => Array(size).fill({type: 'empty'})); }
+
+// --- Game Logic ---
+function init() {
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    camera.x = mothership.x - canvas.width / 2; camera.y = mothership.y - canvas.height / 2;
+    mothership.design = [ {x:2,y:2,type:'brain'}, {x:1,y:2,type:'structure'}, {x:3,y:2,type:'structure'}, {x:2,y:1,type:'structure'}, {x:2,y:3,type:'structure'}, {x:2,y:0,type:'movement'} ];
+    recalculateMothershipStats();
+    spawnInitialResources(); updateBlueprintList(); initCraftingGrids(); gameLoop(performance.now());
+    setInterval(() => { if (!gamePaused) time++; }, 1000);
+    scheduleNextResourceSpawn();
+}
+function spawnInitialResources() { for (let i = 0; i < 30; i++) { const angle = Math.random() * Math.PI * 2; const radius = Math.random() * 500 + 100; const x = mothership.x + Math.cos(angle) * radius; const y = mothership.y + Math.sin(angle) * radius; resources.push({ x, y, size: 10, type: Math.random() > 0.5 ? 'structure' : 'movement', dx: 0, dy: 0 }); } }
+function scheduleNextResourceSpawn() { setTimeout(() => { if (!gamePaused) spawnResource(); scheduleNextResourceSpawn(); }, resourceSpawnInterval); }
+function spawnResource() { const size = 10, spawnRadius = Math.max(canvas.width, canvas.height) / 2 + 100; const angle = Math.random() * Math.PI * 2; const x = mothership.x + Math.cos(angle) * spawnRadius, y = mothership.y + Math.sin(angle) * spawnRadius; const angleToMothership = Math.atan2(mothership.y - y, mothership.x - x); const finalAngle = angleToMothership + (Math.random() - 0.5) * Math.PI; resources.push({ x, y, size, type: ['structure', 'movement', 'weapon', 'projectile'][Math.floor(Math.random() * 4)], dx: Math.cos(finalAngle) * 0.2, dy: Math.sin(finalAngle) * 0.2 }); }
+function spawnEnemy(stats = {}, type = 'melee') { const spawnRadius = Math.max(canvas.width, canvas.height) / 2 + 100; const angle = Math.random() * Math.PI * 2; const x = mothership.x + Math.cos(angle) * spawnRadius; const y = mothership.y + Math.sin(angle) * spawnRadius; enemies.push(new Enemy(x, y, stats, type)); }
+
+function handleWaveSpawning(deltaTime) { if (wave.state === 'INTERMISSION') { wave.timer -= deltaTime; waveMessageDisplay.textContent = `Next wave in ${Math.ceil(wave.timer / 1000)}s`; if (wave.timer <= 0) { wave.current++; wave.state = 'SPAWNING'; wave.enemiesSpawnedThisWave = 0; if (wave.current > 0 && wave.current % 5 === 0) { wave.enemiesToSpawn = 0; enemyMothership = new EnemyMothership(wave.current); } else { wave.enemiesToSpawn = 5 + wave.current * 2; } wave.spawnTimer = 0; waveCountDisplay.textContent = wave.current; waveMessageDisplay.textContent = "Wave in progress!"; } } else if (wave.state === 'SPAWNING') { if (wave.enemiesSpawnedThisWave < wave.enemiesToSpawn) { wave.spawnTimer -= deltaTime; if (wave.spawnTimer <= 0) { const healthBonus = wave.current * 2; const strengthBonus = wave.current * 0.2; if (wave.current >= 5 && Math.random() < 0.2) { spawnEnemy({ health: 5 + healthBonus, attackStrength: 3 + strengthBonus, rangedAttackProjectileSpeed: 3 + wave.current * 0.2 }, 'ranged'); } else { spawnEnemy({ health: 10 + healthBonus, attackStrength: 1 + strengthBonus }); } wave.enemiesSpawnedThisWave++; wave.spawnTimer = wave.spawnInterval; } } else if (enemies.length === 0 && !enemyMothership) { wave.state = 'INTERMISSION'; wave.timer = 5000; } } }
+function gameLoop(timestamp) { if (!gamePaused) update(timestamp); draw(); requestAnimationFrame(gameLoop); }
+let lastTime = 0;
+function update(timestamp) {
+    const rawDeltaTime = timestamp - lastTime; lastTime = timestamp; if (isNaN(rawDeltaTime) || rawDeltaTime > 250) return; // a 250ms frame is ~4fps, anything larger is probably a pause/tab out
+    const deltaTime = rawDeltaTime * gameSpeed;
+    handleWaveSpawning(deltaTime); mothership.move(deltaTime); mothership.update(deltaTime); updateCamera();
+    if (mothership.health < mothership.maxHealth && mothership.energy > 0.02) { const healAmount = 0.01 * (deltaTime / 16.67); mothership.health += healAmount; mothership.energy -= healAmount * 2; if (mothership.health > mothership.maxHealth) mothership.health = mothership.maxHealth; }
+    drones.forEach(d => d.update(deltaTime)); enemies.forEach(e => e.update(deltaTime)); if (enemyMothership) enemyMothership.update(deltaTime);
+    handleCollisions();
+    projectiles.forEach(p => p.update(deltaTime)); projectiles = projectiles.filter(p => p.active);
+    resources.forEach(res => { res.x += res.dx * gameSpeed; res.y += res.dy * gameSpeed; res.dx *= 0.97; res.dy *= 0.97; if (Math.hypot(res.dx, res.dy) < 0.01) { res.dx = 0; res.dy = 0;} });
+    resources = resources.filter(res => Math.hypot(res.x - mothership.x, res.y - mothership.y) < canvas.width * 2);
+    const deadEnemies = enemies.filter(e => e.health <= 0); deadEnemies.forEach(e => { dropLoot(e.x, e.y, e.type); audio.queueSound('death'); enemyKillCount++; if (enemyKillCount > 0 && enemyKillCount % 10 === 0) { resourceSpawnInterval = Math.max(1000, 5000 - (enemyKillCount / 10) * 1000); } });
+    enemies = enemies.filter(e => e.health > 0); drones = drones.filter(d => d.health > 0);
+    if (enemyMothership && enemyMothership.health <= 0) { for(let i=0; i < 20; i++) dropLoot(enemyMothership.x, enemyMothership.y, 'melee'); enemyMothership = null; wave.state = 'INTERMISSION'; wave.timer = 10000; waveMessageDisplay.textContent = "Enemy Mothership Defeated!"; }
+    if ((mothership.health <= 0 || mothership.energy <= 0) && !gameOver) { 
+        mothership.health = 0; gameOver = true; gamePaused = true;
+        document.getElementById('finalTime').textContent = time;
+        document.getElementById('finalKills').textContent = enemyKillCount;
+        document.getElementById('finalResources').textContent = totalResourcesGathered;
+        document.getElementById('gameOverStats').classList.remove('hidden');
+        restartBtn.classList.remove('hidden');
+        pauseMenu.style.display = 'flex'; 
+        pausedText.classList.add('hidden'); 
+        gameOverText.classList.remove('hidden'); 
+        resumeBtn.classList.add('hidden');
+    }
+    updateSpawnButtons(); updateDismantleUI();
+}
+function dropLoot(x, y, enemyType) { 
+    const extraLoot = Math.floor(wave.current / 5);
+    const drop = (type) => {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 2 + 1;
+        const dist = Math.random() * 50;
+        resources.push({ x: x + Math.cos(angle) * dist, y: y + Math.sin(angle) * dist, size: 10, type, dx: Math.cos(angle) * speed, dy: Math.sin(angle) * speed });
+    }
+    if (enemyType === 'ranged') {
+        for(let i=0; i < 1 + extraLoot; i++) drop('projectile');
+        if (Math.random() > 0.5) drop('projectile');
+    } else {
+        for(let i=0; i < 1 + extraLoot; i++) {
+            if (Math.random() > 0.5) drop('movement');
+            if (Math.random() > 0.5) drop('structure');
+            if (Math.random() > 0.5) drop('weapon');
+        }
+    }
+}
+function handleCollisions() {
+    const creatures = [...drones, ...enemies];
+    for (let i = 0; i < creatures.length; i++) {
+        for (let j = i + 1; j < creatures.length; j++) {
+            const a = creatures[i];
+            const b = creatures[j];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.hypot(dx, dy);
+            const minDis = a.size / 2 + b.size / 2;
+            if (dist < minDis) {
+                const overlap = minDis - dist;
+                const angle = Math.atan2(dy, dx);
+                const moveX = (overlap / 2) * Math.cos(angle);
+                const moveY = (overlap / 2) * Math.sin(angle);
+                a.x -= moveX; a.y -= moveY;
+                b.x += moveX; b.y += moveY;
+            }
+        }
+    }
+}
+function unitIsAlive(unit) { return unit && unit.health > 0; }
+function updateCamera() { const targetX = mothership.x - canvas.width / 2; const targetY = mothership.y - canvas.height / 2; camera.x += (targetX - camera.x) * camera.lerpFactor; camera.y += (targetY - camera.y) * camera.lerpFactor; }
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    resources.forEach(res => { const screenX = res.x - camera.x; const screenY = res.y - camera.y; if (screenX > -res.size && screenX < canvas.width + res.size && screenY > -res.size && screenY < canvas.height + res.size) { if (res.type === 'structure') ctx.fillStyle = colors.darkPurple; else if (res.type === 'movement') ctx.fillStyle = colors.green; else if (res.type === 'weapon') ctx.fillStyle = colors.orange; else if (res.type === 'projectile') ctx.fillStyle = colors.purple; ctx.fillRect(screenX - res.size / 2, screenY - res.size / 2, res.size, res.size); } });
+    mothership.draw(); drawHealthBar(mothership);
+    drones.forEach(d => { d.draw(); drawHealthBar(d); });
+    enemies.forEach(e => { e.draw(); drawHealthBar(e); });
+    projectiles.forEach(p => p.draw());
+    if (enemyMothership) { enemyMothership.draw(); drawHealthBar(enemyMothership); }
+    updateHUD();
+}
+function drawHealthBar(unit) { if (unit.health < unit.maxHealth && unit.health > 0) { const screenX = unit.x - camera.x, screenY = unit.y - camera.y; const barWidth = unit.size, barHeight = 5; const x = screenX - barWidth / 2, y = screenY - unit.size / 2 - barHeight - 3; const healthPercentage = unit.health / unit.maxHealth; ctx.fillStyle = '#333'; ctx.fillRect(x, y, barWidth, barHeight); ctx.fillStyle = healthPercentage > 0.5 ? '#00ff00' : healthPercentage > 0.2 ? '#ffff00' : '#ff0000'; ctx.fillRect(x, y, barWidth * healthPercentage, barHeight); } }
+function updateHUD() { healthDisplay.textContent = Math.ceil(mothership.health); energyDisplay.textContent = Math.floor(mothership.energy); structureDisplay.textContent = mothership.resources.structure; movementDisplay.textContent = mothership.resources.movement; weaponDisplay.textContent = mothership.resources.weapon; projectileDisplay.textContent = mothership.resources.projectile; timeDisplay.textContent = time; droneCountDisplay.textContent = drones.length; resourceCountDisplay.textContent = resources.length; enemyCountDisplay.textContent = enemies.length + (enemyMothership ? 1 : 0); killCountDisplay.textContent = enemyKillCount; }
+
+// --- Classes ---
+class Projectile {
+    constructor(x, y, target, damage, speed, owner) { this.x = x; this.y = y; this.target = target; this.damage = damage; this.speed = speed; this.owner = owner; this.radius = 3; this.active = true; }
+    update(deltaTime) { if (!this.active) return; if (!this.target || this.target.health <= 0) { this.active = false; return; } const moveSpeed = this.speed * (deltaTime / 16.67); const dx = this.target.x - this.x, dy = this.target.y - this.y; const dist = Math.hypot(dx, dy); if (dist < this.target.size / 2) { this.target.health -= this.damage; this.active = false; } else { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed; } }
+    draw() { const screenX = this.x - camera.x, screenY = this.y - camera.y; ctx.fillStyle = this.owner === 'player' ? colors.green : colors.orange; ctx.beginPath(); ctx.arc(screenX, screenY, this.radius, 0, Math.PI * 2); ctx.fill(); }
+}
+class Enemy {
+    constructor(x, y, stats = {}, type = 'melee') { this.x = x; this.y = y; this.type = type; this.size = 15; this.target = null; this.health = stats.health || 10; this.maxHealth = stats.health || 10; this.speed = stats.speed || 0.8; this.attackStrength = stats.attackStrength || 1; this.attackRange = 20; this.defense = stats.defense || 0.5; this.attackRate = 1; this.attackCooldown = 0; this.hasRangedAttack = type === 'ranged'; this.rangedAttackPower = this.hasRangedAttack ? stats.attackStrength : 0; this.rangedAttackRange = 50; this.rangedAttackProjectileSpeed = this.hasRangedAttack ? stats.rangedAttackProjectileSpeed : 0; }
+    update(deltaTime) { if (this.health <= 0) return; if (this.attackCooldown > 0) this.attackCooldown -= deltaTime; if (!this.target || !unitIsAlive(this.target)) { let closest = null, minDist = Infinity;[mothership, ...drones].forEach(t => { if (t.health > 0) { const dist = Math.hypot(this.x - t.x, this.y - t.y); if (dist < minDist) { minDist = dist; closest = t; } } }); this.target = closest; } if (this.target) { const moveSpeed = this.speed * (deltaTime / 16.67); const dx = this.target.x - this.x, dy = this.target.y - this.y; const dist = Math.hypot(dx, dy); if (this.hasRangedAttack && dist <= this.rangedAttackRange) { if (this.attackCooldown <= 0) { projectiles.push(new Projectile(this.x, this.y, this.target, this.rangedAttackPower, this.rangedAttackProjectileSpeed, 'enemy')); this.attackCooldown = 1000 / this.attackRate; } } else if (dist > this.attackRange + this.target.size / 2) { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed; } else if (!this.hasRangedAttack && this.attackCooldown <= 0) { const damage = Math.max(0.1, this.attackStrength - (this.target.defense || 0)); this.target.health -= damage; this.attackCooldown = 1000 / this.attackRate; audio.queueSound('attack'); } } }
+    draw() { const screenX = this.x - camera.x, screenY = this.y - camera.y; ctx.fillStyle = colors.red; if (this.type === 'ranged') { ctx.beginPath(); ctx.moveTo(screenX, screenY - this.size / 2); ctx.lineTo(screenX + this.size / 2, screenY); ctx.lineTo(screenX, screenY + this.size / 2); ctx.lineTo(screenX - this.size / 2, screenY); ctx.closePath(); ctx.fill(); } else { ctx.beginPath(); ctx.moveTo(screenX, screenY - this.size / 2); ctx.lineTo(screenX - this.size / 2, screenY + this.size / 2); ctx.lineTo(screenX + this.size / 2, screenY + this.size / 2); ctx.closePath(); ctx.fill(); } }
+}
+class EnemyMothership {
+    constructor(currentWave) { this.size = 60; const spawnRadius = Math.max(canvas.width, canvas.height); const angle = Math.random() * Math.PI * 2; this.x = mothership.x + Math.cos(angle) * spawnRadius; this.y = mothership.y + Math.sin(angle) * spawnRadius; this.health = 200 * (currentWave / 5); this.maxHealth = 200 * (currentWave / 5); this.speed = 0.5; this.defense = 2; this.resources = 15 * (currentWave/5); this.spawnCooldown = 0; this.attackCooldown = 0; this.attackStrength = 5 * (currentWave / 5); this.attackRange = 40; this.target = null; this.state = 'ATTACKING'; }
+    update(deltaTime) { if (this.resources >= 3 && this.spawnCooldown <= 0) { this.resources -= 3; spawnEnemy({ health: 15 * (wave.current / 5) }); this.spawnCooldown = 5000; } if (this.spawnCooldown > 0) this.spawnCooldown -= deltaTime; if (this.attackCooldown > 0) this.attackCooldown -= deltaTime; if (!this.target || !unitIsAlive(this.target)) this.findTarget(); if (this.state === 'ATTACKING' && this.target) { const moveSpeed = this.speed * (deltaTime / 16.67); const dx = this.target.x - this.x, dy = this.target.y - this.y; const dist = Math.hypot(dx, dy); if (dist > this.attackRange) { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed; } else if (this.attackCooldown <= 0) { this.target.health -= this.attackStrength - (this.target.defense || 0); this.attackCooldown = 2000; } } }
+    findTarget() { let closest = null, minDist = Infinity;[mothership, ...drones].forEach(t => { if (t.health > 0) { const dist = Math.hypot(this.x - t.x, this.y - t.y); if (dist < minDist) { minDist = dist; closest = t; } } }); this.target = closest; }
+    draw() { const screenX = this.x - camera.x, screenY = this.y - camera.y; ctx.fillStyle = colors.red; ctx.fillRect(screenX - this.size / 2, screenY - this.size / 2, this.size, this.size); }
+}
+class Drone {
+    constructor(x, y, blueprint) { this.x = x; this.y = y; this.blueprint = blueprint; this.components = blueprint.design; this.size = 15; const sC = this.components.filter(c=>c.type==='structure').length, mC = this.components.filter(c=>c.type==='movement').length, pC = this.components.filter(c=>c.type==='projectile').length; this.maxHealth = 5 * sC; this.health = this.maxHealth; this.defense = 0.2 * sC; this.attackStrength = 1 + this.components.filter(c=>c.type==='weapon').length; this.attackRange = 20; this.attackRate = 2 + (0.1 * mC); this.attackCooldown = 0; this.speed = 1.5 + (mC * 0.5); this.hasRangedAttack = pC > 0; this.rangedAttackPower = 1 * pC; this.rangedAttackRange = 50 + 5 * pC; this.rangedAttackProjectileSpeed = 5 + 2 * pC; this.targetResource = null; this.targetEnemy = null; this.returning = false; this.heldResource = null; this.targetAcquisitionTimer = 0; }
+    update(deltaTime) {
+        if (this.health <= 0) return;
+        if (this.attackCooldown > 0) this.attackCooldown -= deltaTime;
+        const moveSpeed = this.speed * (deltaTime / 16.67);
+        
+        if (this.returning) {
+            const dx = mothership.x - this.x, dy = mothership.y - this.y, dist = Math.hypot(dx, dy);
+            if (dist < mothership.size / 2 + 5) {
+                this.returning = false;
+                if (this.heldResource) { mothership.resources[this.heldResource]++; totalResourcesGathered++; this.heldResource = null; audio.queueSound('collect'); }
+                const healthToRestore = this.maxHealth - this.health;
+                if (healthToRestore > 0) { const energyCost = Math.ceil(healthToRestore / 5); if (mothership.energy >= energyCost) { mothership.energy -= energyCost; this.health = this.maxHealth; } }
+            } else { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed; }
+            return;
+        }
+
+        this.targetAcquisitionTimer -= deltaTime;
+        if (this.targetAcquisitionTimer <= 0 || !unitIsAlive(this.targetEnemy)) {
+            this.targetAcquisitionTimer = 1000;
+            let closestEnemy = null, minEnemyDist = 300;
+            [...enemies, enemyMothership].filter(e=>e).forEach(enemy => { if (enemy.health > 0) { const dist = Math.hypot(this.x - enemy.x, this.y - enemy.y); if (dist < minEnemyDist) { minEnemyDist = dist; closestEnemy = enemy; } } });
+            this.targetEnemy = closestEnemy;
+        }
+
+        if (this.targetEnemy) {
+            this.targetResource = null; const dx = this.targetEnemy.x - this.x, dy = this.targetEnemy.y - this.y, dist = Math.hypot(dx, dy);
+            if (this.hasRangedAttack && dist <= this.rangedAttackRange) { if (this.attackCooldown <= 0) { projectiles.push(new Projectile(this.x, this.y, this.targetEnemy, this.rangedAttackPower, this.rangedAttackProjectileSpeed, 'player')); this.attackCooldown = 1000 / this.attackRate; }
+            } else if (dist > this.attackRange + this.targetEnemy.size/2) { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed;
+            } else if (!this.hasRangedAttack && this.attackCooldown <= 0) { const damage = Math.max(0.1, this.attackStrength - this.targetEnemy.defense); this.targetEnemy.health -= damage; this.attackCooldown = 1000 / this.attackRate; audio.queueSound('attack'); }
+            return;
+        }
+        
+        if (!this.targetResource || !resources.includes(this.targetResource)) this.findClosestResource();
+        if (this.targetResource) { const dx = this.targetResource.x - this.x, dy = this.targetResource.y - this.y, dist = Math.hypot(dx, dy); if (dist < this.size / 2) { this.heldResource = this.targetResource.type; resources.splice(resources.indexOf(this.targetResource), 1); this.returning = true; this.targetResource = null; } else { this.x += (dx / dist) * moveSpeed; this.y += (dy / dist) * moveSpeed; } }
+    }
+    findClosestResource() { let closest = null, minDist = Infinity; resources.forEach(res => { const dist = Math.hypot(this.x - res.x, this.y - res.y); if (dist < minDist) { minDist = dist; closest = res; } }); this.targetResource = closest; }
+    draw() { const screenX = this.x - camera.x; const screenY = this.y - camera.y; const cS = 5; ctx.save(); ctx.translate(screenX, screenY); this.components.forEach(comp => { let color; if (comp.type === 'structure') color = colors.darkPurple; else if (comp.type === 'movement') color = colors.green; else if (comp.type === 'weapon') color = colors.orange; else if(comp.type === 'projectile') color = colors.purple; const dX = (comp.x - 1) * cS; const dY = (comp.y - 1) * cS; ctx.fillStyle = color; ctx.fillRect(dX - cS / 2, dY - cS / 2, cS, cS); }); ctx.restore(); }
+}
+function spawnDrone(slotNumber) { const blueprint = spawnSlots[slotNumber]; if (!blueprint) return; let cost = getBlueprintCost(blueprint); const energyCost = cost.structure + cost.movement + cost.weapon + cost.projectile; if (mothership.energy >= energyCost && mothership.resources.structure >= cost.structure && mothership.resources.movement >= cost.movement && mothership.resources.weapon >= cost.weapon && mothership.resources.projectile >= cost.projectile) { mothership.energy -= energyCost; mothership.resources.structure -= cost.structure; mothership.resources.movement -= cost.movement; mothership.resources.weapon -= cost.weapon; mothership.resources.projectile -= cost.projectile; const drone = new Drone(mothership.x, mothership.y + mothership.size / 2 + 10, blueprint); if (drone.health > 0) drones.push(drone); else { mothership.resources.structure += cost.structure; mothership.resources.movement += cost.movement; mothership.resources.weapon += cost.weapon; mothership.resources.projectile += cost.projectile; mothership.energy += energyCost; } } }
+function getDesignCost(design) { let cost = { structure: 0, movement: 0, weapon: 0, projectile: 0 }; if (!design) return cost; design.forEach(comp => { if (comp.type !== 'brain' && cost[comp.type] !== undefined) { cost[comp.type]++; } }); return cost; }
+function getBlueprintCost(blueprint) { if (!blueprint) return { structure: 0, movement: 0, weapon: 0, projectile: 0 }; return getDesignCost(blueprint.design); }
+function updateSpawnButtons() { for (let i = 1; i <= 3; i++) { const btn = document.getElementById(`spawnDroneBtn${i}`); const blueprint = spawnSlots[i]; if (!blueprint) { btn.disabled = true; continue; } const cost = getBlueprintCost(blueprint); const energyCost = cost.structure + cost.movement + cost.weapon + cost.projectile; btn.querySelector('span:first-child').textContent = `${i}. Spawn ${blueprint.name.split(' ')[0]}`; btn.querySelector('.resource-cost').innerHTML = `<span class="res-structure">S:${cost.structure}</span> <span class="res-movement">M:${cost.movement}</span> <span class="res-weapon">W:${cost.weapon}</span> <span class="res-projectile">P:${cost.projectile}</span> <span class="text-yellow-300">E:${energyCost}</span>`; if (mothership.energy >= energyCost && mothership.resources.structure >= cost.structure && mothership.resources.movement >= cost.movement && mothership.resources.weapon >= cost.weapon && mothership.resources.projectile >= cost.projectile) { btn.disabled = false; } else { btn.disabled = true; } } }
+function updateDismantleUI() { dismantleMenu.querySelectorAll('.dismantle-item').forEach(item => { const resource = item.dataset.resource; const count = mothership.resources[resource]; item.querySelector('.count').textContent = count; item.querySelectorAll('button').forEach(btn => { const amount = parseInt(btn.dataset.amount); btn.disabled = count < amount; }); }); }
+function recalculateMothershipStats() {
+    const sC = mothership.design.filter(c=>c.type==='structure').length, mC = mothership.design.filter(c=>c.type==='movement').length,
+          wC = mothership.design.filter(c=>c.type==='weapon').length, pC = mothership.design.filter(c=>c.type==='projectile').length;
+    mothership.maxHealth = 100 + 10 * sC; if(mothership.health > mothership.maxHealth) mothership.health = mothership.maxHealth;
+    mothership.defense = 0.5 * sC; mothership.speed = 1.5 + 0.2 * mC;
+    mothership.attackStrength = 1 + wC; mothership.hasRangedAttack = pC > 0;
+    mothership.rangedAttackPower = 2 * pC; mothership.rangedAttackRange = 100 + 10 * pC;
+    mothership.moveEnergyCost = 0.05 + 0.1 * mC; mothership.meleeEnergyCost = 0.5 + 0.1 * wC; mothership.rangedEnergyCost = 1 * pC;
+}
+
+// --- Crafting Menu Logic ---
+function initCraftingGrids() {
+    droneCraftingGrid.innerHTML = ''; for (let y = 0; y < 3; y++) { for (let x = 0; x < 3; x++) { const cell = document.createElement('div'); cell.classList.add('grid-cell'); cell.dataset.x = x; cell.dataset.y = y; cell.addEventListener('click', () => { currentDroneCraftingGrid[y][x] = {type: selectedPaletteType === 'empty' ? 'empty' : selectedPaletteType}; renderDroneCraftingGrid(); }); droneCraftingGrid.appendChild(cell); } } renderDroneCraftingGrid();
+    mothershipCraftingGrid.innerHTML = ''; for (let y = 0; y < 5; y++) { for (let x = 0; x < 5; x++) { const cell = document.createElement('div'); cell.classList.add('grid-cell'); cell.dataset.x = x; cell.dataset.y = y; cell.addEventListener('click', (e) => handleMothershipGridClick(x, y)); mothershipCraftingGrid.appendChild(cell); } } renderMothershipCraftingGrid();
+    resourcePalettes.forEach(palette => {
+        const infoDivId = palette.closest('#mothershipCraftingTab') ? 'mothershipPaletteInfo' : 'dronePaletteInfo';
+        palette.innerHTML = `<div id="${infoDivId}"></div>
+            <div class="resource-palette-item" style="background-color: var(--eva-dark-purple);" data-type="structure">Structure</div>
+            <div class="resource-palette-item" style="background-color: var(--eva-green);" data-type="movement">Movement</div>
+            <div class="resource-palette-item" style="background-color: var(--eva-orange);" data-type="weapon">Weapon</div>
+            <div class="resource-palette-item" style="background-color: var(--eva-purple);" data-type="projectile">Projectile</div>
+            <div class="resource-palette-item bg-gray-500" data-type="empty">Clear</div>
+        `;
+    });
+}
+function renderDroneCraftingGrid() { for (let y = 0; y < 3; y++) { for (let x = 0; x < 3; x++) { const cell = droneCraftingGrid.querySelector(`[data-x='${x}'][data-y='${y}']`); const type = currentDroneCraftingGrid[y][x].type; cell.className = 'grid-cell'; if (type !== 'empty') cell.classList.add(type); } } }
+function renderMothershipCraftingGrid() { for (let y = 0; y < 5; y++) { for (let x = 0; x < 5; x++) { const cell = mothershipCraftingGrid.querySelector(`[data-x='${x}'][data-y='${y}']`); const type = currentMothershipCraftingGrid[y][x].type; cell.className = 'grid-cell'; if (type !== 'empty') cell.classList.add(type); } } }
+function loadBlueprintToGrid(blueprint) { currentDroneCraftingGrid = createEmptyGrid(3); if(blueprint) { blueprintNameInput.value = blueprint.name; blueprint.design.forEach(comp => { currentDroneCraftingGrid[comp.y][comp.x] = {type: comp.type}; }); } else { blueprintNameInput.value = ''; } renderDroneCraftingGrid(); }
+function loadMothershipToGrid() { currentMothershipCraftingGrid = createEmptyGrid(5); mothership.design.forEach(comp => { currentMothershipCraftingGrid[comp.y][comp.x] = {type: comp.type}; }); renderMothershipCraftingGrid(); }
+function updateBlueprintList() { blueprintListUI.innerHTML = ''; blueprints.forEach(bp => { const div = document.createElement('div'); div.textContent = bp.name; div.classList.add('drone-slot'); if (selectedBlueprint === bp) div.classList.add('selected'); div.addEventListener('click', () => { selectedBlueprint = bp; loadBlueprintToGrid(bp); updateBlueprintList(); }); blueprintListUI.appendChild(div); }); }
+function handleMothershipGridClick(x, y) {
+    if (x === 2 && y === 2) return;
+    const oldType = currentMothershipCraftingGrid[y][x].type;
+    const newType = selectedPaletteType;
+    if (oldType === newType) return;
+    if (newType !== 'empty' && tempMothershipResourcePool[newType] > 0) {
+        tempMothershipResourcePool[newType]--;
+        if (oldType !== 'empty') tempMothershipResourcePool[oldType]++;
+        currentMothershipCraftingGrid[y][x] = {type: newType};
+    } else if (newType === 'empty' && oldType !== 'empty') {
+        tempMothershipResourcePool[oldType]++;
+        currentMothershipCraftingGrid[y][x] = {type: 'empty'};
+    }
+    updateMothershipPaletteInfo();
+    renderMothershipCraftingGrid();
+}
+function updateMothershipPaletteInfo() {
+    const info = document.getElementById('mothershipPaletteInfo');
+    if (!info) return; // Guard against null element
+    info.innerHTML = `Available to build:<br>
+        <span class="res-structure">S: ${tempMothershipResourcePool.structure}</span><br>
+        <span class="res-movement">M: ${tempMothershipResourcePool.movement}</span><br>
+        <span class="res-weapon">W: ${tempMothershipResourcePool.weapon}</span><br>
+        <span class="res-projectile">P: ${tempMothershipResourcePool.projectile}</span>`;
+}
+
+
+// --- Event Listeners ---
+window.addEventListener('keydown', (e) => {
+    if (gamePaused) return;
+    keys[e.key] = true;
+    switch (e.code) {
+        case 'Digit1': case 'Numpad1': document.getElementById('spawnDroneBtn1').click(); break;
+        case 'Digit2': case 'Numpad2': document.getElementById('spawnDroneBtn2').click(); break;
+        case 'Digit3': case 'Numpad3': document.getElementById('spawnDroneBtn3').click(); break;
+    }
+});
+window.addEventListener('keyup', (e) => delete keys[e.key]);
+window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+startScreen.addEventListener('click', () => { startScreen.style.display = 'none'; Tone.start(); audio.init(); init(); }, { once: true });
+pauseBtn.addEventListener('click', () => { if (gameOver) return; gamePaused = true; pauseMenu.style.display = 'flex'; });
+resumeBtn.addEventListener('click', () => { if (gameOver) return; gamePaused = false; lastTime = performance.now(); pauseMenu.style.display = 'none'; });
+restartBtn.addEventListener('click', () => { window.location.reload(); });
+canvas.addEventListener('click', (e) => { if (gameOver) return; const rect = canvas.getBoundingClientRect(); const clickX = e.clientX - rect.left + camera.x; const clickY = e.clientY - rect.top + camera.y; if (Math.hypot(clickX - mothership.x, clickY - mothership.y) < mothership.size / 2) { gamePaused = true; loadMothershipToGrid(); tempMothershipResourcePool = {...mothership.resources}; const currentDesignCost = getDesignCost(mothership.design); for(const res in currentDesignCost){ tempMothershipResourcePool[res] += currentDesignCost[res]; } updateMothershipPaletteInfo(); craftingMenu.style.display = 'flex'; } });
+const closeCrafting = () => { if (gameOver) return; gamePaused = false; lastTime = performance.now(); craftingMenu.style.display = 'none'; };
+closeCraftingMenuBtn.addEventListener('click', closeCrafting);
+craftingMenuCloseBtnBottom.addEventListener('click', closeCrafting);
+document.getElementById('spawnDroneBtn1').addEventListener('click', () => spawnDrone(1)); document.getElementById('spawnDroneBtn2').addEventListener('click', () => spawnDrone(2)); document.getElementById('spawnDroneBtn3').addEventListener('click', () => spawnDrone(3));
+resourcePalettes.forEach(palette => palette.addEventListener('click', (e) => { const target = e.target.closest('.resource-palette-item'); if (target && target.dataset.type) { selectedPaletteType = target.dataset.type; resourcePalettes.forEach(p => p.querySelectorAll('.resource-palette-item').forEach(el => el.classList.remove('selected'))); document.querySelectorAll(`.resource-palette-item[data-type=${selectedPaletteType}]`).forEach(el => el.classList.add('selected')); } }));
+newBlueprintBtn.addEventListener('click', () => { selectedBlueprint = null; loadBlueprintToGrid(null); updateBlueprintList(); blueprintNameInput.focus(); });
+saveBlueprintBtn.addEventListener('click', () => { const name = blueprintNameInput.value.trim(); if (!name) return; const design = []; for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) if (currentDroneCraftingGrid[y][x].type !== 'empty') design.push({x, y, type: currentDroneCraftingGrid[y][x].type}); if (design.length === 0) return; if (selectedBlueprint) { selectedBlueprint.name = name; selectedBlueprint.design = design; } else { const newBp = { name, design }; blueprints.push(newBp); selectedBlueprint = newBp; } updateBlueprintList(); });
+saveMothershipBtn.addEventListener('click', () => { const design = []; for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) { if (x === 2 && y === 2) { design.push({x,y,type:'brain'}); } else if (currentMothershipCraftingGrid[y][x].type !== 'empty') { design.push({x, y, type: currentMothershipCraftingGrid[y][x].type}); } } mothership.design = design; mothership.resources = tempMothershipResourcePool; recalculateMothershipStats(); alert('Mothership Core updated!'); });
+assignSlotBtns.forEach(btn => { btn.addEventListener('click', () => { if (!selectedBlueprint) return; const slot = btn.dataset.slot; spawnSlots[slot] = selectedBlueprint; updateSpawnButtons(); }); });
+volumeSlider.addEventListener('input', (e) => audio.setVolume(e.target.value)); muteBtn.addEventListener('click', () => audio.toggleMute());
+speedSlider.addEventListener('input', (e) => { gameSpeed = parseFloat(e.target.value); speedValueDisplay.textContent = `${gameSpeed.toFixed(1)}x`; });
+dismantleMenu.addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') { const item = e.target.closest('.dismantle-item'); const resource = item.dataset.resource; const amount = parseInt(e.target.dataset.amount); if (mothership.resources[resource] >= amount) { mothership.resources[resource] -= amount; let energyGain = 0; switch(resource) { case 'structure': energyGain = 5 * amount; break; case 'movement': energyGain = 10 * amount; break; default: energyGain = 15 * amount; break; } mothership.energy = Math.min(mothership.maxEnergy, mothership.energy + energyGain); } } });
+droneTabBtn.addEventListener('click', () => { droneCraftingTab.classList.remove('hidden'); mothershipCraftingTab.classList.add('hidden'); droneTabBtn.classList.add('active'); mothershipTabBtn.classList.remove('active'); });
+mothershipTabBtn.addEventListener('click', () => { droneCraftingTab.classList.add('hidden'); mothershipCraftingTab.classList.remove('hidden'); droneTabBtn.classList.remove('active'); mothershipTabBtn.classList.add('active'); });
+</script>
+
+</body>
+</html>
